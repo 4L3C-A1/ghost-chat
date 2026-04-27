@@ -99,10 +99,34 @@ DOM.btnSaveProfile.onclick = () => {
 // Initialize
 loadProfile();
 
-// ─── Window Controls ────────────────────────────────────────────
+// ─── Window Controls & Updates ──────────────────────────────────
 DOM.btnMinimize.onclick = () => window.electronAPI.minimize();
 DOM.btnMaximize.onclick = () => window.electronAPI.maximize();
 DOM.btnClose.onclick    = () => window.electronAPI.close();
+
+// Update Handlers
+if (window.electronAPI.onUpdateMessage) {
+  window.electronAPI.onUpdateMessage((msg) => console.log('Update:', msg));
+  
+  window.electronAPI.onUpdateAvailable((ver) => {
+    showToast(`Nueva versión v${ver} disponible. Descargando...`, 'info');
+  });
+
+  window.electronAPI.onUpdateDownloading((percent) => {
+    // Optional: show progress
+    console.log(`Descargando actualización: ${percent}%`);
+  });
+
+  window.electronAPI.onUpdateReady(() => {
+    const confirmUpdate = confirm("¡Actualización lista! ¿Quieres reiniciar GhostChat ahora para aplicar los cambios?");
+    if (confirmUpdate) window.electronAPI.restartApp();
+  });
+
+  window.electronAPI.onUpdateError((err) => {
+    console.error(err);
+    showToast("Error al buscar actualización", "error");
+  });
+}
 
 // ─── Crypto ─────────────────────────────────────────────────────
 async function deriveKey(seed, salt = 'ghostchat-salt-v1') {
@@ -489,3 +513,28 @@ DOM.msgInput.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.prev
 
 // Controls
 DOM.btnDisconnect.onclick = () => location.reload();
+
+// ─── Auto-Update Listeners ──────────────────────────────────────
+if (window.electronAPI) {
+  window.electronAPI.onUpdateMessage((msg) => {
+    console.log('Update:', msg);
+  });
+  
+  window.electronAPI.onUpdateAvailable((ver) => {
+    showToast(`Nueva versión v${ver} disponible. Descargando...`, 'info');
+  });
+  
+  window.electronAPI.onUpdateDownloading((percent) => {
+    // Optionally update a progress bar here
+  });
+  
+  window.electronAPI.onUpdateReady(() => {
+    const res = confirm('¡Actualización lista! GhostChat se cerrará un momento para instalar la nueva versión. ¿Continuar?');
+    if (res) window.electronAPI.restartApp();
+  });
+  
+  window.electronAPI.onUpdateError((err) => {
+    console.error('Update error:', err);
+    // Don't toast every error to avoid spamming if offline
+  });
+}

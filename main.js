@@ -38,11 +38,31 @@ function createWindow() {
 }
 
 // Auto-updater events
-autoUpdater.on('update-available', () => {
-  mainWindow.webContents.executeJavaScript(`console.log('Actualización disponible. Descargando...')`);
+autoUpdater.on('checking-for-update', () => {
+  if (mainWindow) mainWindow.webContents.send('update-message', 'Buscando actualizaciones...');
+});
+
+autoUpdater.on('update-available', (info) => {
+  if (mainWindow) mainWindow.webContents.send('update-available', info.version);
+});
+
+autoUpdater.on('update-not-available', () => {
+  if (mainWindow) mainWindow.webContents.send('update-message', 'GhostChat está actualizado.');
+});
+
+autoUpdater.on('error', (err) => {
+  if (mainWindow) mainWindow.webContents.send('update-error', 'Error al actualizar: ' + err.message);
+});
+
+autoUpdater.on('download-progress', (progressObj) => {
+  if (mainWindow) mainWindow.webContents.send('update-downloading', Math.floor(progressObj.percent));
 });
 
 autoUpdater.on('update-downloaded', () => {
+  if (mainWindow) mainWindow.webContents.send('update-ready');
+});
+
+ipcMain.on('restart-app', () => {
   autoUpdater.quitAndInstall();
 });
 
