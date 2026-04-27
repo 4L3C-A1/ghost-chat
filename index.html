@@ -19,7 +19,7 @@
           <circle cx="12" cy="9" r="2" fill="#c084fc"/>
         </svg>
         <span class="app-name">GhostChat</span>
-        <span class="app-version">v1.2.0</span>
+        <span class="app-version">v1.3.0</span>
       </div>
     </div>
     <div class="titlebar-controls">
@@ -36,26 +36,10 @@
   </div>
 
   <!-- Main App -->
-    <!-- === SCREEN: PROFILE (Identity) === -->
-    <div id="screen-profile" class="screen">
-      <div class="setup-wrapper">
-        <div class="setup-hero">
-          <div class="ghost-icon">👻</div>
-          <h1 class="setup-title">Crea tu Identidad</h1>
-          <p class="setup-subtitle">Tu nombre se guardará en este equipo para siempre.</p>
-        </div>
-        <div class="setup-card profile-card">
-          <div class="input-group">
-            <label class="input-label">Nombre de Usuario</label>
-            <input type="text" id="profile-name" class="input-field" placeholder="Ej: GhostRider" maxlength="20">
-          </div>
-          <button id="btn-save-profile" class="btn-primary">Comenzar</button>
-        </div>
-      </div>
-    </div>
+  <div class="app-container">
 
     <!-- === SCREEN: SETUP === -->
-    <div id="screen-setup" class="screen">
+    <div id="screen-setup" class="screen active">
       <div class="setup-wrapper">
         <div class="setup-hero">
           <div class="ghost-icon">
@@ -93,29 +77,33 @@
 
           <!-- Host Panel -->
           <div class="tab-panel active" id="panel-host">
-            <p class="panel-desc">Crea una sala privada y segura.</p>
+            <p class="panel-desc">Elige un nombre y genera el código de tu sala.</p>
+            <div class="input-group">
+              <label class="input-label">Tu nombre</label>
+              <input type="text" id="host-name" class="input-field" placeholder="Ej: Alice" maxlength="20" />
+            </div>
             <button id="btn-create-room" class="btn-primary">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4"/></svg>
               Generar Sala Privada
             </button>
             <div id="room-code-display" class="room-code-display hidden">
-              <p class="room-code-label">Código de Sala (comparte este código):</p>
+              <p class="room-code-label">Comparte este código:</p>
               <div class="room-code-box">
                 <span id="room-code-value" class="room-code-text"></span>
                 <button id="btn-copy-code" class="btn-copy" title="Copiar">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
                 </button>
               </div>
-              <div class="waiting-indicator">
-                <div class="pulse-dot"></div>
-                <span>Esperando que la otra persona se conecte...</span>
-              </div>
             </div>
           </div>
 
           <!-- Join Panel -->
           <div class="tab-panel" id="panel-join">
-            <p class="panel-desc">Ingresa el <strong>Código de Sala</strong> para conectarte.</p>
+            <p class="panel-desc">Introduce tu nombre y el código de sala.</p>
+            <div class="input-group">
+              <label class="input-label">Tu nombre</label>
+              <input type="text" id="join-name" class="input-field" placeholder="Ej: Bob" maxlength="20" />
+            </div>
             <div class="input-group">
               <label class="input-label">Código de Sala</label>
               <input type="text" id="join-code" class="input-field input-code" placeholder="XXXX-XXXX-XXXX" maxlength="30" />
@@ -124,10 +112,6 @@
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4"/><polyline points="10,17 15,12 10,7"/></svg>
               Conectarse
             </button>
-            <div id="join-status" class="join-status hidden">
-              <div class="pulse-dot"></div>
-              <span id="join-status-text">Conectando...</span>
-            </div>
           </div>
         </div>
 
