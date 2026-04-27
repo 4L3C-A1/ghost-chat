@@ -13,27 +13,33 @@ const $ = id => document.getElementById(id);
 // ─── State ─────────────────────────────────────────────────────
 const state = {
   peer: null,
-  myName: '',
+  profile: null,        // { id, name } - Persistent
   myPeerId: '',
   isHost: false,
   roomCode: '',
-  groupKey: null,      // Key derived from room code for group chat
-  participants: {},    // { peerId: { name, conn, privateKey, messages: [] } }
-  activeChat: 'group', // 'group' or peerId
+  groupKey: null,
+  participants: {},    // { peerId: { id (profileId), name, conn, privateKey, messages: [] } }
+  activeChat: 'group',
   groupMessages: [],
-  replyingTo: null,    // Message object we are replying to
+  replyingTo: null,
   connected: false,
 };
 
 // ─── DOM Refs ───────────────────────────────────────────────────
 const DOM = {
+  screenProfile:    $('screen-profile'),
+  profileName:      $('profile-name'),
+  btnSaveProfile:   $('btn-save-profile'),
   screenSetup:      $('screen-setup'),
   screenChat:       $('screen-chat'),
-  hostName:         $('host-name'),
-  joinName:         $('join-name'),
-  joinCode:         $('join-code'),
+  // ... rest of DOM refs
+};
+
+// Update DOM refs initialization
+Object.assign(DOM, {
   btnCreate:        $('btn-create-room'),
   btnJoin:          $('btn-join-room'),
+  joinCode:         $('join-code'),
   roomCodeDisplay:  $('room-code-display'),
   roomCodeValue:    $('room-code-value'),
   participantsList: $('participants-list'),
@@ -51,26 +57,52 @@ const DOM = {
   activeAvatar:     $('topbar-active-avatar'),
   btnDisconnect:    $('btn-disconnect'),
   contactGroup:     $('contact-group'),
-  // Window Controls
   btnMinimize:      $('btn-minimize'),
   btnMaximize:      $('btn-maximize'),
   btnClose:         $('btn-close'),
+});
+
+// ─── Profile Management ──────────────────────────────────────────
+function loadProfile() {
+  const saved = localStorage.getItem('gc-profile');
+  if (saved) {
+    state.profile = JSON.parse(saved);
+    showScreen('screen-setup');
+    $('welcome-msg').textContent = `¡Hola de nuevo, ${state.profile.name}!`;
+  } else {
+    showScreen('screen-profile');
+  }
+}
+
+function saveProfile(name) {
+  const profile = {
+    id: crypto.randomUUID(), // Unique persistent identity
+    name: name
+  };
+  localStorage.setItem('gc-profile', JSON.stringify(profile));
+  state.profile = profile;
+  showScreen('screen-setup');
+}
+
+function showScreen(screenId) {
+  DOM.screenProfile.classList.toggle('active', screenId === 'screen-profile');
+  DOM.screenSetup.classList.toggle('active', screenId === 'screen-setup');
+  DOM.screenChat.classList.toggle('active', screenId === 'screen-chat');
+}
+
+DOM.btnSaveProfile.onclick = () => {
+  const name = DOM.profileName.value.trim();
+  if (name) saveProfile(name);
+  else showToast('Ingresa un nombre', 'error');
 };
+
+// Initialize
+loadProfile();
 
 // ─── Window Controls ────────────────────────────────────────────
 DOM.btnMinimize.onclick = () => window.electronAPI.minimize();
 DOM.btnMaximize.onclick = () => window.electronAPI.maximize();
 DOM.btnClose.onclick    = () => window.electronAPI.close();
-
-// ─── Tab Switching ──────────────────────────────────────────────
-$('tab-host').onclick = () => {
-  $('tab-host').classList.add('active'); $('tab-join').classList.remove('active');
-  $('panel-host').classList.add('active'); $('panel-join').classList.remove('active');
-};
-$('tab-join').onclick = () => {
-  $('tab-join').classList.add('active'); $('tab-host').classList.remove('active');
-  $('panel-join').classList.add('active'); $('panel-host').classList.remove('active');
-};
 
 // ─── Crypto ─────────────────────────────────────────────────────
 async function deriveKey(seed, salt = 'ghostchat-salt-v1') {
@@ -116,39 +148,47 @@ const PEERJS_CONFIG = {
   }
 };
 
+function generateRoomCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const gen = () => Array.from({length: 4}, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  return `${gen()}-${gen()}-${gen()}`;
+}
+
+function showToast(msg, type = 'info') {
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type} animate-pop`;
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+}
+
 // ─── Setup ──────────────────────────────────────────────────────
 DOM.btnCreate.addEventListener('click', async () => {
-  const name = DOM.hostName.value.trim() || 'Host';
   const code = generateRoomCode();
-  
   DOM.btnCreate.disabled = true;
-  DOM.btnCreate.textContent = 'Iniciando sala...';
-
+  DOM.btnCreate.textContent = 'Iniciando...';
   state.isHost = true;
   state.roomCode = code;
-  state.myName = name;
   state.groupKey = await deriveKey(code);
   initPeer(hostPeerId(code));
 });
 
 DOM.btnJoin.addEventListener('click', async () => {
-  const name = DOM.joinName.value.trim() || 'Joiner';
   const code = DOM.joinCode.value.trim().toUpperCase();
-  if (!code || code.length < 5) return showToast('Ingresa un código válido', 'error');
-
+  if (!code || code.length < 5) return showToast('Código inválido', 'error');
   DOM.btnJoin.disabled = true;
   DOM.btnJoin.textContent = 'Conectando...';
-
   state.isHost = false;
   state.roomCode = code;
-  state.myName = name;
   state.groupKey = await deriveKey(code);
-  initPeer(null); // Random ID for joiner
+  initPeer(null);
 });
 
 function initPeer(id) {
   state.peer = new Peer(id, PEERJS_CONFIG);
-
   state.peer.on('open', (myId) => {
     state.myPeerId = myId;
     if (state.isHost) {
@@ -157,79 +197,67 @@ function initPeer(id) {
       enterChat();
     } else {
       const conn = state.peer.connect(hostPeerId(state.roomCode), { 
-        metadata: { name: state.myName },
+        metadata: { profile: state.profile },
         reliable: true
       });
       setupConnection(conn);
     }
   });
-
   state.peer.on('error', (err) => {
-    console.error('Peer error:', err);
-    DOM.btnJoin.disabled = false;
-    DOM.btnJoin.textContent = 'Conectarse';
-    DOM.btnCreate.disabled = false;
-    DOM.btnCreate.textContent = 'Generar Sala Privada';
-    showToast('Error: ' + (err.type === 'peer-unavailable' ? 'Sala no encontrada' : err.type), 'error');
+    DOM.btnJoin.disabled = false; DOM.btnJoin.textContent = 'Conectarse';
+    DOM.btnCreate.disabled = false; DOM.btnCreate.textContent = 'Generar Sala Privada';
+    showToast('Error de red', 'error');
   });
-
-  state.peer.on('connection', (conn) => {
-    setupConnection(conn);
-  });
+  state.peer.on('connection', (conn) => setupConnection(conn));
 }
 
 function setupConnection(conn) {
   conn.on('open', () => {
-    conn.send({ type: 'handshake', name: state.myName });
+    conn.send({ type: 'handshake', profile: state.profile });
   });
 
   conn.on('data', async (data) => {
     if (data.type === 'handshake') {
       const pId = conn.peer;
-      const pName = data.name || 'Anónimo';
-      
-      // FIX: Sort IDs to ensure both sides generate the SAME symmetric key
+      const profile = data.profile || { id: pId, name: 'Anónimo' };
       const keySeed = [state.myPeerId, pId].sort().join('-') + state.roomCode;
       const pKey = await deriveKey(keySeed);
-
-      state.participants[pId] = { name: pName, conn, privateKey: pKey, messages: [] };
+      state.participants[pId] = { ...profile, conn, privateKey: pKey, messages: [] };
       updateParticipantsUI();
-
       if (state.isHost) broadcastPeerList();
       if (!state.connected) enterChat();
     }
-
+    // ... handling other types (msg-group, msg-private, peer-list)
     if (data.type === 'peer-list') {
-      // Connect to all other peers mentioned by host
       data.peers.forEach(peerId => {
         if (peerId !== state.myPeerId && !state.participants[peerId]) {
-          const newConn = state.peer.connect(peerId, { metadata: { name: state.myName } });
+          const newConn = state.peer.connect(peerId, { metadata: { profile: state.profile } });
           setupConnection(newConn);
         }
       });
     }
-
     if (data.type === 'msg-group') {
       const text = await decrypt(data.payload, state.groupKey);
       receiveMessage('group', conn.peer, text, data.replyTo, data.id);
     }
-
     if (data.type === 'msg-private') {
       try {
         const pKey = state.participants[conn.peer].privateKey;
         const text = await decrypt(data.payload, pKey);
         receiveMessage(conn.peer, conn.peer, text, data.replyTo, data.id);
-      } catch (e) {
-        console.error("Error decrypting private message:", e);
-        showToast("Error al descifrar mensaje privado", "error");
-      }
+      } catch (e) { showToast("Error de cifrado", "error"); }
     }
   });
 
   conn.on('close', () => {
     const p = state.participants[conn.peer];
     if (p) {
-      showToast(`${p.name} se fue`, 'error');
+      showToast(`${p.name} se desconectó`, 'error');
+      // Presence Logic: Close private chat if open
+      if (state.activeChat === conn.peer) {
+        selectChat('group');
+        showToast(`Chat privado cerrado: ${p.name} salió`, 'error');
+      }
       delete state.participants[conn.peer];
       updateParticipantsUI();
     }

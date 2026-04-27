@@ -838,3 +838,8 @@ html, body {
 
 /* ===================== UTILITY ===================== */
 .hidden { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
+
+ . p r o f i l e - c a r d   {   d i s p l a y :   f l e x ;   f l e x - d i r e c t i o n :   c o l u m n ;   g a p :   2 0 p x ;   } 
+ . g h o s t - i c o n   {   f o n t - s i z e :   6 4 p x ;   m a r g i n - b o t t o m :   2 0 p x ;   } 
+ . w e l c o m e - m s g   {   c o l o r :   v a r ( - - p u r p l e - 4 0 0 ) ;   f o n t - w e i g h t :   5 0 0 ;   m a r g i n - b o t t o m :   2 0 p x ;   }  
+ 

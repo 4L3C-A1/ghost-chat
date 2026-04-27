@@ -35,10 +35,26 @@
   </div>
 
   <!-- Main App -->
-  <div class="app-container">
+    <!-- === SCREEN: PROFILE (Identity) === -->
+    <div id="screen-profile" class="screen">
+      <div class="setup-wrapper">
+        <div class="setup-hero">
+          <div class="ghost-icon">👻</div>
+          <h1 class="setup-title">Crea tu Identidad</h1>
+          <p class="setup-subtitle">Tu nombre se guardará en este equipo para siempre.</p>
+        </div>
+        <div class="setup-card profile-card">
+          <div class="input-group">
+            <label class="input-label">Nombre de Usuario</label>
+            <input type="text" id="profile-name" class="input-field" placeholder="Ej: GhostRider" maxlength="20">
+          </div>
+          <button id="btn-save-profile" class="btn-primary">Comenzar</button>
+        </div>
+      </div>
+    </div>
 
     <!-- === SCREEN: SETUP === -->
-    <div id="screen-setup" class="screen active">
+    <div id="screen-setup" class="screen">
       <div class="setup-wrapper">
         <div class="setup-hero">
           <div class="ghost-icon">
@@ -76,11 +92,7 @@
 
           <!-- Host Panel -->
           <div class="tab-panel active" id="panel-host">
-            <p class="panel-desc">Crea una sala y comparte tu <strong>Código de Sala</strong> con la otra persona.</p>
-            <div class="input-group">
-              <label class="input-label">Tu nombre</label>
-              <input type="text" id="host-name" class="input-field" placeholder="Ej: Alice" maxlength="20" />
-            </div>
+            <p class="panel-desc">Crea una sala privada y segura.</p>
             <button id="btn-create-room" class="btn-primary">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4"/></svg>
               Generar Sala Privada
@@ -102,11 +114,7 @@
 
           <!-- Join Panel -->
           <div class="tab-panel" id="panel-join">
-            <p class="panel-desc">Ingresa el <strong>Código de Sala</strong> que te compartió la otra persona.</p>
-            <div class="input-group">
-              <label class="input-label">Tu nombre</label>
-              <input type="text" id="join-name" class="input-field" placeholder="Ej: Bob" maxlength="20" />
-            </div>
+            <p class="panel-desc">Ingresa el <strong>Código de Sala</strong> para conectarte.</p>
             <div class="input-group">
               <label class="input-label">Código de Sala</label>
               <input type="text" id="join-code" class="input-field input-code" placeholder="XXXX-XXXX-XXXX" maxlength="30" />
