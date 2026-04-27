@@ -818,3 +818,6 @@ html, body {
 
 /* Group Avatar Special */
 .group-avatar { background: linear-gradient(135deg, #4f46e5, #9333ea) !important; color: white !important; }
+
+/* ===================== UTILITY ===================== */
+.hidden { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }

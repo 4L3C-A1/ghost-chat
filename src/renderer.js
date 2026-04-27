@@ -215,9 +215,14 @@ function setupConnection(conn) {
     }
 
     if (data.type === 'msg-private') {
-      const pKey = state.participants[conn.peer].privateKey;
-      const text = await decrypt(data.payload, pKey);
-      receiveMessage(conn.peer, conn.peer, text, data.replyTo, data.id);
+      try {
+        const pKey = state.participants[conn.peer].privateKey;
+        const text = await decrypt(data.payload, pKey);
+        receiveMessage(conn.peer, conn.peer, text, data.replyTo, data.id);
+      } catch (e) {
+        console.error("Error decrypting private message:", e);
+        showToast("Error al descifrar mensaje privado", "error");
+      }
     }
   });
 
@@ -271,6 +276,7 @@ async function sendMessage() {
     receiveMessage('group', 'me', text, replyTo, msgId);
   } else {
     const p = state.participants[state.activeChat];
+    if (!p) return showToast("Usuario no encontrado", "error");
     const payload = await encrypt(text, p.privateKey);
     p.conn.send({ type: 'msg-private', payload, id: msgId, replyTo });
     receiveMessage(state.activeChat, 'me', text, replyTo, msgId);
@@ -396,8 +402,20 @@ function setReply(user, text) {
 function cancelReply() {
   state.replyingTo = null;
   DOM.replyPreview.classList.add('hidden');
+  console.log("Reply cancelled");
 }
-DOM.btnCancelReply.onclick = cancelReply;
+
+// Global click listener for the cancel button as a fallback
+document.addEventListener('click', (e) => {
+  if (e.target.id === 'btn-cancel-reply' || e.target.closest('#btn-cancel-reply')) {
+    cancelReply();
+  }
+});
+
+DOM.btnCancelReply.addEventListener('click', (e) => {
+  e.stopPropagation();
+  cancelReply();
+});
 
 // ─── Context Menu ───────────────────────────────────────────────
 function showContextMenu(x, y, peerId) {
