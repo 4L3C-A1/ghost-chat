@@ -1,6 +1,6 @@
 {
   "name": "ghost-chat",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Private end-to-end encrypted P2P chat",
   "author": "4L3C-A1",
   "repository": {
@@ -23,7 +23,8 @@
     "publish": {
       "provider": "github",
       "owner": "4L3C-A1",
-      "repo": "ghost-chat"
+      "repo": "ghost-chat",
+      "releaseType": "release"
     },
     "win": {
       "target": [
