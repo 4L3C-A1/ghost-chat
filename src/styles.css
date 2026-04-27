@@ -784,15 +784,35 @@ html, body {
 
 /* ---- Message with Reply ---- */
 .msg-reply-container {
-  background: rgba(0, 0, 0, 0.2);
-  border-left: 2px solid rgba(255, 255, 255, 0.2);
-  padding: 6px 10px;
-  border-radius: 4px;
-  margin-bottom: 6px;
+  background: rgba(0, 0, 0, 0.15);
+  border-left: 3px solid rgba(255, 255, 255, 0.3);
+  padding: 4px 10px;
+  border-radius: 6px;
+  margin-bottom: 8px;
   font-size: 12px;
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  text-align: left;
 }
-.msg-reply-user { font-weight: 600; color: inherit; opacity: 0.8; display: block; }
-.msg-reply-text { opacity: 0.7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.msg-reply-user { 
+  font-weight: 700; 
+  color: inherit; 
+  opacity: 0.9; 
+  display: block; 
+  font-size: 11px;
+  margin-bottom: 1px; 
+}
+.msg-reply-text { 
+  opacity: 0.75; 
+  white-space: nowrap; 
+  overflow: hidden; 
+  text-overflow: ellipsis; 
+  margin: 0 !important;
+  padding: 0 !important;
+  display: block;
+}
 
 /* ---- Context Menu ---- */
 .context-menu {
