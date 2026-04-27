@@ -1,0 +1,6 @@
+{
+  "appId": "com.ghostchat.app",
+  "appName": "GhostChat",
+  "webDir": "www",
+  "bundledWebRuntime": false
+}
