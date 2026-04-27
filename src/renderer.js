@@ -189,6 +189,16 @@ function showToast(msg, type = 'info') {
   }, 3000);
 }
 
+// ─── Tab Switching ──────────────────────────────────────────────
+$('tab-host').onclick = () => {
+  $('tab-host').classList.add('active'); $('tab-join').classList.remove('active');
+  $('panel-host').classList.add('active'); $('panel-join').classList.remove('active');
+};
+$('tab-join').onclick = () => {
+  $('tab-join').classList.add('active'); $('tab-host').classList.remove('active');
+  $('panel-join').classList.add('active'); $('panel-host').classList.remove('active');
+};
+
 // ─── Setup ──────────────────────────────────────────────────────
 DOM.btnCreate.addEventListener('click', async () => {
   const code = generateRoomCode();
