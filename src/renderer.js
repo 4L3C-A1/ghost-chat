@@ -13,17 +13,129 @@ const $ = id => document.getElementById(id);
 // ─── State ─────────────────────────────────────────────────────
 const state = {
   peer: null,
-  profile: null,        // { id, name } - Persistent
+  profile: null,
   myPeerId: '',
   isHost: false,
   roomCode: '',
   groupKey: null,
-  participants: {},    // { peerId: { id (profileId), name, conn, privateKey, messages: [] } }
+  participants: {},
   activeChat: 'group',
   groupMessages: [],
   replyingTo: null,
   connected: false,
+  typingPeers: new Set(),
 };
+
+// ... inside DOM Refs ...
+Object.assign(DOM, {
+  // ... existing ...
+  typingIndicator:  $('typing-indicator'),
+  myDisplayName:    $('my-display-name'),
+  myAvatarLetter:   $('my-avatar-letter'),
+});
+
+// ─── Profile Management ──────────────────────────────────────────
+function loadProfile() {
+  const saved = localStorage.getItem('gc-profile');
+  if (saved) {
+    state.profile = JSON.parse(saved);
+    updateProfileUI();
+    showScreen('screen-setup');
+    $('welcome-msg').textContent = `¡Bienvenido, ${state.profile.name}!`;
+  } else {
+    showScreen('screen-profile');
+  }
+}
+
+function updateProfileUI() {
+  if (!state.profile) return;
+  DOM.myDisplayName.textContent = state.profile.name;
+  DOM.myAvatarLetter.textContent = state.profile.name[0].toUpperCase();
+}
+
+function saveProfile(name) {
+  const profile = {
+    id: state.profile?.id || crypto.randomUUID(),
+    name: name
+  };
+  localStorage.setItem('gc-profile', JSON.stringify(profile));
+  state.profile = profile;
+  updateProfileUI();
+  showScreen('screen-setup');
+  // If already connected, broadcast name change
+  if (state.connected) {
+    broadcast({ type: 'profile-update', profile: state.profile });
+  }
+}
+
+// ─── Typing Indicator ───────────────────────────────────────────
+let typingTimeout;
+DOM.msgInput.addEventListener('input', () => {
+  if (!state.connected) return;
+  broadcast({ type: 'typing', isTyping: true });
+  
+  clearTimeout(typingTimeout);
+  typingTimeout = setTimeout(() => {
+    broadcast({ type: 'typing', isTyping: false });
+  }, 2000);
+});
+
+function broadcast(data) {
+  Object.values(state.participants).forEach(p => {
+    if (p.conn && p.conn.open) p.conn.send(data);
+  });
+}
+
+// ─── Setup & Handshake ───────────────────────────────────────────
+function setupConnection(conn) {
+  conn.on('open', () => {
+    conn.send({ type: 'handshake', profile: state.profile });
+  });
+
+  conn.on('data', async (data) => {
+    const pId = conn.peer;
+
+    if (data.type === 'handshake') {
+      const profile = data.profile || { id: pId, name: 'Anónimo' };
+      
+      // Prevent duplicates by checking profile ID
+      const existing = Object.entries(state.participants).find(([_, p]) => p.id === profile.id);
+      if (existing) {
+        // Clean up old connection if same user reconnects
+        existing[1].conn.close();
+        delete state.participants[existing[0]];
+      }
+
+      const keySeed = [state.myPeerId, pId].sort().join('-') + state.roomCode;
+      const pKey = await deriveKey(keySeed);
+      
+      state.participants[pId] = { ...profile, conn, privateKey: pKey, messages: [] };
+      receiveMessage('group', 'system', `${profile.name} se unió a la sala`);
+      
+      updateParticipantsUI();
+      if (state.isHost) broadcastPeerList();
+      if (!state.connected) enterChat();
+    }
+
+    if (data.type === 'typing') {
+      const p = state.participants[pId];
+      if (p) {
+        if (data.isTyping) state.typingPeers.add(p.name);
+        else state.typingPeers.delete(p.name);
+        updateTypingUI();
+      }
+    }
+
+    if (data.type === 'profile-update') {
+      const p = state.participants[pId];
+      if (p) {
+        const oldName = p.name;
+        p.name = data.profile.name;
+        receiveMessage('group', 'system', `${oldName} ahora se llama ${p.name}`);
+        updateParticipantsUI();
+      }
+    }
+    // ... rest of msg types ...
 
 // ─── DOM Refs ───────────────────────────────────────────────────
 const DOM = {
@@ -348,51 +460,113 @@ async function sendMessage() {
   cancelReply();
 }
 
+function updateTypingUI() {
+  const peers = Array.from(state.typingPeers);
+  if (peers.length === 0) {
+    DOM.typingIndicator.textContent = '';
+    DOM.typingIndicator.classList.add('hidden');
+  } else {
+    const text = peers.length === 1 
+      ? `${peers[0]} está escribiendo...` 
+      : `${peers.slice(0, -1).join(', ')} y ${peers.slice(-1)} están escribiendo...`;
+    DOM.typingIndicator.textContent = text;
+    DOM.typingIndicator.classList.remove('hidden');
+  }
+}
+
+function scrollToBottom() {
+  DOM.messagesContainer.scrollTop = DOM.messagesContainer.scrollHeight;
+}
+
 function receiveMessage(chatId, senderId, text, replyTo, msgId) {
   const msgObj = { id: msgId, senderId, text, replyTo, timestamp: new Date() };
 
   if (chatId === 'group') {
     state.groupMessages.push(msgObj);
-  } else {
+  } else if (state.participants[chatId]) {
     state.participants[chatId].messages.push(msgObj);
   }
 
   if (state.activeChat === chatId) {
     appendMessageUI(msgObj);
-  } else {
-    // Show notification on sidebar
+    scrollToBottom();
+  } else if (senderId !== 'system' && senderId !== 'me') {
+    showToast(`Nuevo mensaje de ${state.participants[senderId]?.name || 'Alguien'}`, 'info');
     updateParticipantsUI();
   }
 }
 
-// ─── UI Rendering ───────────────────────────────────────────────
-function updateParticipantsUI() {
-  DOM.participantCount.textContent = Object.keys(state.participants).length + 1;
-  DOM.participantsList.innerHTML = '';
-
-  Object.entries(state.participants).forEach(([id, p]) => {
+function appendMessageUI(msg) {
+  if (msg.senderId === 'system') {
     const el = document.createElement('div');
-    el.className = `participant-item ${state.activeChat === id ? 'active' : ''}`;
-    el.innerHTML = `
-      <div class="participant-avatar">${p.name[0]}</div>
-      <div class="participant-info">
-        <span class="participant-name">${p.name}</span>
-        <span class="participant-status">P2P Conectado</span>
+    el.className = 'msg-system animate-pop';
+    el.textContent = msg.text;
+    DOM.messagesContainer.appendChild(el);
+    return;
+  }
+
+  const isMe = msg.senderId === 'me';
+  const sender = isMe ? state.profile : state.participants[msg.senderId];
+  if (!sender && !isMe) return;
+
+  const wrapper = document.createElement('div');
+  wrapper.className = `msg-wrapper ${isMe ? 'outgoing' : 'incoming'} animate-pop`;
+  
+  let replyHTML = '';
+  if (msg.replyTo) {
+    replyHTML = `
+      <div class="msg-reply-container">
+        <span class="msg-reply-user">${msg.replyTo.senderName}</span>
+        <p class="msg-reply-text">${msg.replyTo.text}</p>
       </div>
     `;
-    el.onclick = () => selectChat(id);
-    el.oncontextmenu = (e) => {
-      e.preventDefault();
-      showContextMenu(e.pageX, e.pageY, id);
-    };
-    DOM.participantsList.appendChild(el);
-  });
+  }
+
+  const time = msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const senderName = isMe ? 'Tú' : (sender?.name || 'Anónimo');
+
+  wrapper.innerHTML = `
+    <div class="msg-bubble" title="${msg.timestamp.toLocaleString()}">
+      ${!isMe && state.activeChat === 'group' ? `<span class="msg-sender-name">${senderName}</span>` : ''}
+      ${replyHTML}
+      <div class="msg-text">${msg.text}</div>
+    </div>
+    <span class="msg-meta">${time}</span>
+  `;
+
+  // Right click to reply
+  wrapper.oncontextmenu = (e) => {
+    e.preventDefault();
+    setReply(msgId, senderName, msg.text);
+  };
+
+  DOM.messagesContainer.appendChild(wrapper);
+}
+
+function renderMessages(messages) {
+  DOM.messagesContainer.innerHTML = '';
+  if (messages.length === 0) {
+    DOM.messagesContainer.innerHTML = `
+      <div class="messages-start">
+        <p>No hay mensajes todavía. ¡Sé el primero en escribir!</p>
+      </div>
+    `;
+    return;
+  }
+  messages.forEach(appendMessageUI);
+  scrollToBottom();
 }
 
 function selectChat(id) {
   state.activeChat = id;
-  DOM.contactGroup.classList.toggle('active', id === 'group');
-  updateParticipantsUI();
+  
+  // Highlight in sidebar
+  document.querySelectorAll('.participant-item, .chat-contact').forEach(el => el.classList.remove('active'));
+  if (id === 'group') DOM.contactGroup.classList.add('active');
+  else {
+    const el = document.querySelector(`.participant-item[data-id="${id}"]`);
+    if (el) el.classList.add('active');
+  }
 
   if (id === 'group') {
     DOM.activeName.textContent = 'Chat del Grupo';
@@ -410,52 +584,34 @@ function selectChat(id) {
   }
 }
 
-DOM.contactGroup.onclick = () => selectChat('group');
+function updateParticipantsUI() {
+  DOM.participantCount.textContent = Object.keys(state.participants).length + 1;
+  DOM.participantsList.innerHTML = '';
 
-function renderMessages(messages) {
-  DOM.messagesContainer.innerHTML = '';
-  messages.forEach(appendMessageUI);
-}
-
-function appendMessageUI(msg) {
-  const isMe = msg.senderId === 'me';
-  const senderName = isMe ? state.myName : (state.participants[msg.senderId]?.name || 'Anónimo');
-
-  const wrapper = document.createElement('div');
-  wrapper.className = `msg-wrapper ${isMe ? 'outgoing' : 'incoming'}`;
-
-  let replyHtml = '';
-  if (msg.replyTo) {
-    replyHtml = `
-      <div class="msg-reply-container">
-        <span class="msg-reply-user">${msg.replyTo.user}</span>
-        <p class="msg-reply-text">${msg.replyTo.text}</p>
+  Object.entries(state.participants).forEach(([id, p]) => {
+    const el = document.createElement('div');
+    el.className = `participant-item ${state.activeChat === id ? 'active' : ''}`;
+    el.setAttribute('data-id', id);
+    el.innerHTML = `
+      <div class="participant-avatar">${p.name[0]}</div>
+      <div class="participant-info">
+        <span class="participant-name">${p.name}</span>
+        <span class="participant-status">P2P Conectado</span>
       </div>
     `;
-  }
-
-  wrapper.innerHTML = `
-    <div class="msg-bubble" id="${msg.id}">
-      ${replyHtml}
-      ${msg.text}
-    </div>
-    <div class="msg-meta">${senderName} · ${msg.timestamp.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
-  `;
-
-  // Right click to reply
-  wrapper.oncontextmenu = (e) => {
-    e.preventDefault();
-    setReply(senderName, msg.text);
-  };
-
-  DOM.messagesContainer.appendChild(wrapper);
-  DOM.messagesContainer.scrollTop = DOM.messagesContainer.scrollHeight;
+    el.onclick = () => selectChat(id);
+    el.oncontextmenu = (e) => {
+      e.preventDefault();
+      showContextMenu(e.pageX, e.pageY, id);
+    };
+    DOM.participantsList.appendChild(el);
+  });
 }
 
 // ─── Replies ───────────────────────────────────────────────────
-function setReply(user, text) {
-  state.replyingTo = { user, text };
-  DOM.replyUser.textContent = `Respondiendo a ${user}`;
+function setReply(msgId, senderName, text) {
+  state.replyingTo = { msgId, senderName, text };
+  DOM.replyUser.textContent = `Respondiendo a ${senderName}`;
   DOM.replyText.textContent = text;
   DOM.replyPreview.classList.remove('hidden');
   DOM.msgInput.focus();
@@ -464,87 +620,28 @@ function setReply(user, text) {
 function cancelReply() {
   state.replyingTo = null;
   DOM.replyPreview.classList.add('hidden');
-  console.log("Reply cancelled");
 }
 
-// Global click listener for the cancel button as a fallback
-document.addEventListener('click', (e) => {
-  if (e.target.id === 'btn-cancel-reply' || e.target.closest('#btn-cancel-reply')) {
-    cancelReply();
-  }
-});
-
-DOM.btnCancelReply.addEventListener('click', (e) => {
-  e.stopPropagation();
-  cancelReply();
-});
-
-// ─── Context Menu ───────────────────────────────────────────────
-function showContextMenu(x, y, peerId) {
-  const old = document.querySelector('.context-menu');
-  if (old) old.remove();
-
-  const menu = document.createElement('div');
-  menu.className = 'context-menu';
-  menu.style.left = x + 'px';
-  menu.style.top = y + 'px';
-
-  const item = document.createElement('div');
-  item.className = 'menu-item';
-  item.textContent = 'Enviar mensaje privado';
-  item.onclick = () => {
-    selectChat(peerId);
-    menu.remove();
-  };
-
-  menu.appendChild(item);
-  document.body.appendChild(menu);
-
-  document.onclick = () => menu.remove();
-}
-
-// ─── Helpers ────────────────────────────────────────────────────
-function generateRoomCode() {
-  const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  const s = () => Array.from({length:4}, () => c[Math.floor(Math.random()*c.length)]).join('');
-  return `${s()}-${s()}-${s()}`;
-}
-
-function showToast(msg, type) {
-  const t = document.createElement('div');
-  t.className = `toast ${type}`;
-  t.textContent = msg;
-  $('toast-container').appendChild(t);
-  setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 400); }, 3000);
-}
-
+// ─── Auto-Update & Controls ──────────────────────────────────────
 DOM.btnSend.onclick = sendMessage;
-DOM.msgInput.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } };
-
-// Controls
+DOM.msgInput.onkeydown = (e) => { 
+  if (e.key === 'Enter' && !e.shiftKey) { 
+    e.preventDefault(); 
+    sendMessage(); 
+  } 
+};
 DOM.btnDisconnect.onclick = () => location.reload();
+DOM.btnCancelReply.onclick = cancelReply;
 
-// ─── Auto-Update Listeners ──────────────────────────────────────
 if (window.electronAPI) {
-  window.electronAPI.onUpdateMessage((msg) => {
-    console.log('Update:', msg);
-  });
-  
-  window.electronAPI.onUpdateAvailable((ver) => {
-    showToast(`Nueva versión v${ver} disponible. Descargando...`, 'info');
-  });
-  
-  window.electronAPI.onUpdateDownloading((percent) => {
-    // Optionally update a progress bar here
-  });
-  
+  window.electronAPI.onUpdateAvailable((ver) => showToast(`v${ver} lista para instalar`, 'info'));
   window.electronAPI.onUpdateReady(() => {
-    const res = confirm('¡Actualización lista! GhostChat se cerrará un momento para instalar la nueva versión. ¿Continuar?');
-    if (res) window.electronAPI.restartApp();
-  });
-  
-  window.electronAPI.onUpdateError((err) => {
-    console.error('Update error:', err);
-    // Don't toast every error to avoid spamming if offline
+    if (confirm("Actualización lista. ¿Reiniciar ahora?")) window.electronAPI.restartApp();
   });
 }
+
+// Edit Profile Button
+$('my-avatar').onclick = () => {
+  const newName = prompt("Cambiar nombre de usuario:", state.profile.name);
+  if (newName && newName.trim()) saveProfile(newName.trim());
+};
