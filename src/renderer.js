@@ -1,0 +1,445 @@
+/* ============================================================
+   GhostChat — Multi-user Mesh Chat with Private Sub-chats
+   - PeerJS (WebRTC) Mesh Network
+   - AES-256-GCM Encryption
+   - Context Menu for Private Chats
+   - Message Reply System
+   ============================================================ */
+
+'use strict';
+
+const $ = id => document.getElementById(id);
+
+// ─── State ─────────────────────────────────────────────────────
+const state = {
+  peer: null,
+  myName: '',
+  myPeerId: '',
+  isHost: false,
+  roomCode: '',
+  groupKey: null,      // Key derived from room code for group chat
+  participants: {},    // { peerId: { name, conn, privateKey, messages: [] } }
+  activeChat: 'group', // 'group' or peerId
+  groupMessages: [],
+  replyingTo: null,    // Message object we are replying to
+  connected: false,
+};
+
+// ─── DOM Refs ───────────────────────────────────────────────────
+const DOM = {
+  screenSetup:      $('screen-setup'),
+  screenChat:       $('screen-chat'),
+  hostName:         $('host-name'),
+  joinName:         $('join-name'),
+  joinCode:         $('join-code'),
+  btnCreate:        $('btn-create-room'),
+  btnJoin:          $('btn-join-room'),
+  roomCodeDisplay:  $('room-code-display'),
+  roomCodeValue:    $('room-code-value'),
+  participantsList: $('participants-list'),
+  participantCount: $('participant-count'),
+  messagesContainer: $('messages-container'),
+  msgInput:         $('msg-input'),
+  btnSend:          $('btn-send'),
+  replyPreview:     $('reply-preview'),
+  replyUser:        $('reply-user'),
+  replyText:        $('reply-text'),
+  btnCancelReply:   $('btn-cancel-reply'),
+  activeName:       $('topbar-active-name'),
+  activeStatus:     $('topbar-active-status'),
+  activeLetter:     $('topbar-active-letter'),
+  activeAvatar:     $('topbar-active-avatar'),
+  btnDisconnect:    $('btn-disconnect'),
+  contactGroup:     $('contact-group'),
+  // Window Controls
+  btnMinimize:      $('btn-minimize'),
+  btnMaximize:      $('btn-maximize'),
+  btnClose:         $('btn-close'),
+};
+
+// ─── Window Controls ────────────────────────────────────────────
+DOM.btnMinimize.onclick = () => window.electronAPI.minimize();
+DOM.btnMaximize.onclick = () => window.electronAPI.maximize();
+DOM.btnClose.onclick    = () => window.electronAPI.close();
+
+// ─── Tab Switching ──────────────────────────────────────────────
+$('tab-host').onclick = () => {
+  $('tab-host').classList.add('active'); $('tab-join').classList.remove('active');
+  $('panel-host').classList.add('active'); $('panel-join').classList.remove('active');
+};
+$('tab-join').onclick = () => {
+  $('tab-join').classList.add('active'); $('tab-host').classList.remove('active');
+  $('panel-join').classList.add('active'); $('panel-host').classList.remove('active');
+};
+
+// ─── Crypto ─────────────────────────────────────────────────────
+async function deriveKey(seed, salt = 'ghostchat-salt-v1') {
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(seed), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: enc.encode(salt), iterations: 100000, hash: 'SHA-256' },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+async function encrypt(text, key) {
+  const enc = new TextEncoder();
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(text));
+  const combined = new Uint8Array(iv.byteLength + ciphertext.byteLength);
+  combined.set(iv, 0); combined.set(new Uint8Array(ciphertext), iv.byteLength);
+  return btoa(String.fromCharCode(...combined));
+}
+
+async function decrypt(b64, key) {
+  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.slice(0, 12) }, key, bytes.slice(12));
+  return new TextDecoder().decode(plaintext);
+}
+
+// ─── Peer Utilities ──────────────────────────────────────────────
+const hostPeerId = code => 'gc-' + code.replace(/-/g, '').toLowerCase();
+
+const PEERJS_CONFIG = {
+  config: {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun.cloudflare.com:3478' },
+      { urls: 'stun:stun.anyfirewall.com:3478' },
+    ],
+    iceCandidatePoolSize: 10,
+  }
+};
+
+// ─── Setup ──────────────────────────────────────────────────────
+DOM.btnCreate.addEventListener('click', async () => {
+  const name = DOM.hostName.value.trim() || 'Host';
+  const code = generateRoomCode();
+  
+  DOM.btnCreate.disabled = true;
+  DOM.btnCreate.textContent = 'Iniciando sala...';
+
+  state.isHost = true;
+  state.roomCode = code;
+  state.myName = name;
+  state.groupKey = await deriveKey(code);
+  initPeer(hostPeerId(code));
+});
+
+DOM.btnJoin.addEventListener('click', async () => {
+  const name = DOM.joinName.value.trim() || 'Joiner';
+  const code = DOM.joinCode.value.trim().toUpperCase();
+  if (!code || code.length < 5) return showToast('Ingresa un código válido', 'error');
+
+  DOM.btnJoin.disabled = true;
+  DOM.btnJoin.textContent = 'Conectando...';
+
+  state.isHost = false;
+  state.roomCode = code;
+  state.myName = name;
+  state.groupKey = await deriveKey(code);
+  initPeer(null); // Random ID for joiner
+});
+
+function initPeer(id) {
+  state.peer = new Peer(id, PEERJS_CONFIG);
+
+  state.peer.on('open', (myId) => {
+    state.myPeerId = myId;
+    if (state.isHost) {
+      DOM.roomCodeValue.textContent = state.roomCode;
+      DOM.roomCodeDisplay.classList.remove('hidden');
+      enterChat();
+    } else {
+      const conn = state.peer.connect(hostPeerId(state.roomCode), { 
+        metadata: { name: state.myName },
+        reliable: true
+      });
+      setupConnection(conn);
+    }
+  });
+
+  state.peer.on('error', (err) => {
+    console.error('Peer error:', err);
+    DOM.btnJoin.disabled = false;
+    DOM.btnJoin.textContent = 'Conectarse';
+    DOM.btnCreate.disabled = false;
+    DOM.btnCreate.textContent = 'Generar Sala Privada';
+    showToast('Error: ' + (err.type === 'peer-unavailable' ? 'Sala no encontrada' : err.type), 'error');
+  });
+
+  state.peer.on('connection', (conn) => {
+    setupConnection(conn);
+  });
+}
+
+function setupConnection(conn) {
+  conn.on('open', () => {
+    conn.send({ type: 'handshake', name: state.myName });
+  });
+
+  conn.on('data', async (data) => {
+    if (data.type === 'handshake') {
+      const pId = conn.peer;
+      const pName = data.name || 'Anónimo';
+      
+      // FIX: Sort IDs to ensure both sides generate the SAME symmetric key
+      const keySeed = [state.myPeerId, pId].sort().join('-') + state.roomCode;
+      const pKey = await deriveKey(keySeed);
+
+      state.participants[pId] = { name: pName, conn, privateKey: pKey, messages: [] };
+      updateParticipantsUI();
+
+      if (state.isHost) broadcastPeerList();
+      if (!state.connected) enterChat();
+    }
+
+    if (data.type === 'peer-list') {
+      // Connect to all other peers mentioned by host
+      data.peers.forEach(peerId => {
+        if (peerId !== state.myPeerId && !state.participants[peerId]) {
+          const newConn = state.peer.connect(peerId, { metadata: { name: state.myName } });
+          setupConnection(newConn);
+        }
+      });
+    }
+
+    if (data.type === 'msg-group') {
+      const text = await decrypt(data.payload, state.groupKey);
+      receiveMessage('group', conn.peer, text, data.replyTo, data.id);
+    }
+
+    if (data.type === 'msg-private') {
+      const pKey = state.participants[conn.peer].privateKey;
+      const text = await decrypt(data.payload, pKey);
+      receiveMessage(conn.peer, conn.peer, text, data.replyTo, data.id);
+    }
+  });
+
+  conn.on('close', () => {
+    const p = state.participants[conn.peer];
+    if (p) {
+      showToast(`${p.name} se fue`, 'error');
+      delete state.participants[conn.peer];
+      updateParticipantsUI();
+    }
+  });
+}
+
+function broadcastPeerList() {
+  const ids = [state.myPeerId, ...Object.keys(state.participants)];
+  Object.values(state.participants).forEach(p => {
+    p.conn.send({ type: 'peer-list', peers: ids });
+  });
+}
+
+// ─── Chat Logic ─────────────────────────────────────────────────
+function enterChat() {
+  state.connected = true;
+  DOM.screenSetup.classList.remove('active');
+  DOM.screenChat.classList.add('active');
+
+  // Set sidebar room code
+  $('sidebar-room-code').textContent = state.roomCode;
+  $('btn-copy-sidebar').onclick = () => {
+    navigator.clipboard.writeText(state.roomCode);
+    showToast('Código copiado', 'success');
+  };
+
+  DOM.msgInput.disabled = false;
+  DOM.btnSend.disabled = false;
+  DOM.msgInput.focus();
+}
+
+async function sendMessage() {
+  const text = DOM.msgInput.value.trim();
+  if (!text) return;
+
+  const msgId = 'm-' + Date.now();
+  const replyTo = state.replyingTo;
+
+  if (state.activeChat === 'group') {
+    const payload = await encrypt(text, state.groupKey);
+    Object.values(state.participants).forEach(p => {
+      p.conn.send({ type: 'msg-group', payload, id: msgId, replyTo });
+    });
+    receiveMessage('group', 'me', text, replyTo, msgId);
+  } else {
+    const p = state.participants[state.activeChat];
+    const payload = await encrypt(text, p.privateKey);
+    p.conn.send({ type: 'msg-private', payload, id: msgId, replyTo });
+    receiveMessage(state.activeChat, 'me', text, replyTo, msgId);
+  }
+
+  DOM.msgInput.value = '';
+  cancelReply();
+}
+
+function receiveMessage(chatId, senderId, text, replyTo, msgId) {
+  const msgObj = { id: msgId, senderId, text, replyTo, timestamp: new Date() };
+
+  if (chatId === 'group') {
+    state.groupMessages.push(msgObj);
+  } else {
+    state.participants[chatId].messages.push(msgObj);
+  }
+
+  if (state.activeChat === chatId) {
+    appendMessageUI(msgObj);
+  } else {
+    // Show notification on sidebar
+    updateParticipantsUI();
+  }
+}
+
+// ─── UI Rendering ───────────────────────────────────────────────
+function updateParticipantsUI() {
+  DOM.participantCount.textContent = Object.keys(state.participants).length + 1;
+  DOM.participantsList.innerHTML = '';
+
+  Object.entries(state.participants).forEach(([id, p]) => {
+    const el = document.createElement('div');
+    el.className = `participant-item ${state.activeChat === id ? 'active' : ''}`;
+    el.innerHTML = `
+      <div class="participant-avatar">${p.name[0]}</div>
+      <div class="participant-info">
+        <span class="participant-name">${p.name}</span>
+        <span class="participant-status">P2P Conectado</span>
+      </div>
+    `;
+    el.onclick = () => selectChat(id);
+    el.oncontextmenu = (e) => {
+      e.preventDefault();
+      showContextMenu(e.pageX, e.pageY, id);
+    };
+    DOM.participantsList.appendChild(el);
+  });
+}
+
+function selectChat(id) {
+  state.activeChat = id;
+  DOM.contactGroup.classList.toggle('active', id === 'group');
+  updateParticipantsUI();
+
+  if (id === 'group') {
+    DOM.activeName.textContent = 'Chat del Grupo';
+    DOM.activeStatus.textContent = 'Mensajes para todos';
+    DOM.activeLetter.textContent = 'G';
+    DOM.activeAvatar.classList.add('group-avatar');
+    renderMessages(state.groupMessages);
+  } else {
+    const p = state.participants[id];
+    DOM.activeName.textContent = p.name;
+    DOM.activeStatus.textContent = 'Chat Privado E2E';
+    DOM.activeLetter.textContent = p.name[0];
+    DOM.activeAvatar.classList.remove('group-avatar');
+    renderMessages(p.messages);
+  }
+}
+
+DOM.contactGroup.onclick = () => selectChat('group');
+
+function renderMessages(messages) {
+  DOM.messagesContainer.innerHTML = '';
+  messages.forEach(appendMessageUI);
+}
+
+function appendMessageUI(msg) {
+  const isMe = msg.senderId === 'me';
+  const senderName = isMe ? state.myName : (state.participants[msg.senderId]?.name || 'Anónimo');
+
+  const wrapper = document.createElement('div');
+  wrapper.className = `msg-wrapper ${isMe ? 'outgoing' : 'incoming'}`;
+
+  let replyHtml = '';
+  if (msg.replyTo) {
+    replyHtml = `
+      <div class="msg-reply-container">
+        <span class="msg-reply-user">${msg.replyTo.user}</span>
+        <p class="msg-reply-text">${msg.replyTo.text}</p>
+      </div>
+    `;
+  }
+
+  wrapper.innerHTML = `
+    <div class="msg-bubble" id="${msg.id}">
+      ${replyHtml}
+      ${msg.text}
+    </div>
+    <div class="msg-meta">${senderName} · ${msg.timestamp.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+  `;
+
+  // Right click to reply
+  wrapper.oncontextmenu = (e) => {
+    e.preventDefault();
+    setReply(senderName, msg.text);
+  };
+
+  DOM.messagesContainer.appendChild(wrapper);
+  DOM.messagesContainer.scrollTop = DOM.messagesContainer.scrollHeight;
+}
+
+// ─── Replies ───────────────────────────────────────────────────
+function setReply(user, text) {
+  state.replyingTo = { user, text };
+  DOM.replyUser.textContent = `Respondiendo a ${user}`;
+  DOM.replyText.textContent = text;
+  DOM.replyPreview.classList.remove('hidden');
+  DOM.msgInput.focus();
+}
+
+function cancelReply() {
+  state.replyingTo = null;
+  DOM.replyPreview.classList.add('hidden');
+}
+DOM.btnCancelReply.onclick = cancelReply;
+
+// ─── Context Menu ───────────────────────────────────────────────
+function showContextMenu(x, y, peerId) {
+  const old = document.querySelector('.context-menu');
+  if (old) old.remove();
+
+  const menu = document.createElement('div');
+  menu.className = 'context-menu';
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+
+  const item = document.createElement('div');
+  item.className = 'menu-item';
+  item.textContent = 'Enviar mensaje privado';
+  item.onclick = () => {
+    selectChat(peerId);
+    menu.remove();
+  };
+
+  menu.appendChild(item);
+  document.body.appendChild(menu);
+
+  document.onclick = () => menu.remove();
+}
+
+// ─── Helpers ────────────────────────────────────────────────────
+function generateRoomCode() {
+  const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const s = () => Array.from({length:4}, () => c[Math.floor(Math.random()*c.length)]).join('');
+  return `${s()}-${s()}-${s()}`;
+}
+
+function showToast(msg, type) {
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  t.textContent = msg;
+  $('toast-container').appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 400); }, 3000);
+}
+
+DOM.btnSend.onclick = sendMessage;
+DOM.msgInput.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } };
+
+// Controls
+DOM.btnDisconnect.onclick = () => location.reload();

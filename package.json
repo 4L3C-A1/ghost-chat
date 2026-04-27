@@ -1,0 +1,69 @@
+{
+  "name": "ghost-chat",
+  "version": "1.0.0",
+  "description": "Private end-to-end encrypted P2P chat",
+  "author": "4L3C-A1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/4L3C-A1/ghost-chat.git"
+  },
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder --win --x64",
+    "build-portable": "electron-builder --win portable"
+  },
+  "build": {
+    "appId": "com.ghostchat.app",
+    "productName": "GhostChat",
+    "directories": {
+      "output": "dist"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "4L3C-A1",
+      "repo": "ghost-chat"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "assets/icon.png",
+      "uninstallerIcon": "assets/icon.png",
+      "installerHeaderIcon": "assets/icon.png",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "GhostChat"
+    },
+    "files": [
+      "**/*",
+      "!dist/**",
+      "!node_modules/.cache/**"
+    ]
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.3",
+    "peerjs": "^1.5.4"
+  }
+}
