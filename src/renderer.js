@@ -375,6 +375,7 @@ DOM.btnSend.onclick = sendMessage;
 DOM.msgInput.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } };
 DOM.btnDisconnect.onclick = () => location.reload();
 DOM.btnCancelReply.onclick = cancelReply;
+DOM.contactGroup.onclick = () => selectChat('group');
 
 window.electronAPI.onUpdateReady(() => {
   if (confirm("Nueva versión lista. ¿Reiniciar ahora?")) window.electronAPI.restartApp();
