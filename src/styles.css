@@ -69,19 +69,11 @@ html, body {
   flex-shrink: 0;
 }
 
-body.not-electron .titlebar {
-  display: none;
-}
-
 .app-container {
   display: flex;
   flex-direction: column;
   height: calc(100vh - 38px);
   overflow: hidden;
-}
-
-body.not-electron .app-container {
-  height: 100vh;
 }
 
 .titlebar-drag { flex: 1; display: flex; align-items: center; }

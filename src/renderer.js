@@ -55,11 +55,9 @@ const DOM = {
 };
 
 // ─── Window Controls ──────────────────────────────────────────
-if (window.electronAPI) {
-  DOM.btnMinimize.onclick = () => window.electronAPI.minimize();
-  DOM.btnMaximize.onclick = () => window.electronAPI.maximize();
-  DOM.btnClose.onclick    = () => window.electronAPI.close();
-}
+DOM.btnMinimize.onclick = () => window.electronAPI.minimize();
+DOM.btnMaximize.onclick = () => window.electronAPI.maximize();
+DOM.btnClose.onclick    = () => window.electronAPI.close();
 
 // ─── Crypto ─────────────────────────────────────────────────────
 async function deriveKey(seed, salt = 'ghostchat-salt') {
@@ -378,8 +376,6 @@ DOM.msgInput.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.prev
 DOM.btnDisconnect.onclick = () => location.reload();
 DOM.btnCancelReply.onclick = cancelReply;
 
-if (window.electronAPI) {
-  window.electronAPI.onUpdateReady(() => {
-    if (confirm("Nueva versión lista. ¿Reiniciar ahora?")) window.electronAPI.restartApp();
-  });
-}
+window.electronAPI.onUpdateReady(() => {
+  if (confirm("Nueva versión lista. ¿Reiniciar ahora?")) window.electronAPI.restartApp();
+});

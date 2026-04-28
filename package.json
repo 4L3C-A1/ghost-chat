@@ -1,7 +1,7 @@
 {
   "name": "ghost-chat",
-  "version": "1.4.1",
-  "description": "Private end-to-end encrypted P2P chat (Hybrid PC/Android)",
+  "version": "1.4.2",
+  "description": "Private end-to-end encrypted P2P chat",
   "author": "4L3C-A1",
   "repository": {
     "type": "git",
@@ -60,9 +60,6 @@
     "electron-builder": "^24.9.1"
   },
   "dependencies": {
-    "@capacitor/android": "^8.3.1",
-    "@capacitor/cli": "^8.3.1",
-    "@capacitor/core": "^8.3.1",
     "electron-updater": "^6.8.3",
     "peerjs": "^1.5.4"
   }
