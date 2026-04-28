@@ -309,6 +309,7 @@ function updateParticipantsUI() {
   Object.entries(state.participants).forEach(([id, p]) => {
     const el = document.createElement('div');
     el.className = `participant-item ${state.activeChat === id ? 'active' : ''}`;
+    el.dataset.id = id;
     el.innerHTML = `<div class="participant-avatar">${p.name[0]}</div><div class="participant-info"><span class="participant-name">${p.name}</span><span class="participant-status">Online</span></div>`;
     el.onclick = () => selectChat(id);
     DOM.participantsList.appendChild(el);
@@ -316,11 +317,19 @@ function updateParticipantsUI() {
 }
 
 function selectChat(id) {
+  if (id !== 'group' && !state.participants[id]) {
+    return selectChat('group'); // Fallback if user is gone
+  }
+
   state.activeChat = id;
-  document.querySelectorAll('.participant-item, .chat-contact').forEach(el => el.classList.remove('active'));
-  if (id === 'group') DOM.contactGroup.classList.add('active');
   
+  // Update sidebar active classes
+  document.querySelectorAll('.participant-item, .chat-contact').forEach(el => {
+    el.classList.remove('active');
+  });
+
   if (id === 'group') {
+    DOM.contactGroup.classList.add('active');
     DOM.activeName.textContent = 'Chat del Grupo';
     DOM.activeStatus.textContent = 'Mensajes para todos';
     DOM.activeLetter.textContent = 'G';
@@ -328,6 +337,14 @@ function selectChat(id) {
     renderMessages(state.groupMessages);
   } else {
     const p = state.participants[id];
+    // Find and highlight the participant item in the list
+    const items = DOM.participantsList.querySelectorAll('.participant-item');
+    items.forEach(item => {
+      if (item.dataset.id === id) {
+        item.classList.add('active');
+      }
+    });
+
     DOM.activeName.textContent = p.name;
     DOM.activeStatus.textContent = 'Chat Privado';
     DOM.activeLetter.textContent = p.name[0];
